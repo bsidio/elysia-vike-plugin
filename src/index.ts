@@ -1,11 +1,12 @@
+// src/index.ts
+
 import { Elysia } from "elysia";
-import { elysiaConnectDecorate } from "elysia-connect";
+import { elysiaConnectDecorate, elysiaConnect } from "elysia-connect";
 import { ViteConfig, getViteConfig } from "elysia-vite";
 import * as path from "path";
 import { renderPage } from "vike/server";
 import { ssr, UserConfig as ConfigVikeUserProvided } from "vike/plugin";
 import type { Connect, ViteDevServer } from "vite";
-import { ServerResponse } from "node:http";
 
 export type ElysiaVikeConfig = ViteConfig & {
     pluginVike?: ConfigVikeUserProvided;
@@ -24,10 +25,11 @@ export const elysiaVike =
         if (!pluginVike) return _app;
         log("resolvedConfig", resolvedConfig);
 
-        const vite = await import("vite");
+        const vite = require("vite");
 
         const viteServer: ViteDevServer = await vite.createServer({
-            root: resolvedConfig?.root || path.resolve(process.cwd(), "./"),
+            root: resolvedConfig?.root || path.resolve(import.meta.dir, "./"),
+            ssr: true,
             ...resolvedConfig,
             server: { middlewareMode: true, ...resolvedConfig?.server },
             plugins: (resolvedConfig?.plugins || []).concat([
@@ -50,28 +52,10 @@ export const elysiaVike =
                 log("onStop :: reached");
                 return await viteServer.close();
             })
-            .group(config?.base || "", (app) =>
-                app
-                    .onBeforeHandle(async (context) => {
-                        log("onBeforeHandle :: reached", context.request.url);
-                        const handled = await context.elysiaConnect(
-                            viteDevMiddleware,
-                            context
-                        );
-                        log("onBeforeHandle :: handle?", !!handled);
-                        if (handled) return handled;
-                    })
-                    .get("*", async (context) => {
-                        const handled = await context.elysiaConnect(
-                            createVikeConnectMiddleware(
-                                viteServer,
-                                resolvedConfig
-                            ),
-                            context
-                        );
-                        if (handled) return handled;
-                    })
-            );
+            .use(elysiaConnect(viteDevMiddleware, {
+                name: "viteDevMiddleware",
+                matchPath: (path) => path.startsWith(config?.base || "")
+            }))
     };
 
 function createVikeConnectMiddleware(
